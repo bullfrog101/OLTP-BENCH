@@ -26,8 +26,27 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.ArrayList;
+import java.util.Arrays;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 
 import org.apache.log4j.Logger;
+
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.select.Select;
+import net.sf.jsqlparser.statement.insert.Insert;
+import net.sf.jsqlparser.statement.select.PlainSelect;
+import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.expression.ExpressionVisitor;
+import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 
 import com.oltpbenchmark.jdbc.AutoIncrementPreparedStatement;
 import com.oltpbenchmark.types.DatabaseType;
@@ -48,6 +67,90 @@ public abstract class Procedure {
         this.procName = this.getClass().getSimpleName();
     }
     
+    public ArrayList<String> execCommandWithRet(String[] commands) {
+        ArrayList<String> list = new ArrayList<>();
+        try {
+            Process p = Runtime.getRuntime().exec(commands);
+            BufferedInputStream is = new BufferedInputStream(p.getInputStream());
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+            String line;
+            String result;
+            while ((line = reader.readLine()) != null) {
+                // LOG.info(line);
+                list.add(line);
+            }
+            try {
+                p.waitFor();
+                is.close();
+                reader.close();
+                p.destroy();
+            } catch(InterruptedException e) {
+                e.printStackTrace();
+            }
+        } catch(IOException e) {
+            e.printStackTrace();
+        }
+        return list;
+    }
+
+    public String getCondExpression(String statement) {
+        String result = null;
+        try {
+            Select select = (Select) CCJSqlParserUtil.parse(statement);
+            result = ((PlainSelect) select.getSelectBody()).getWhere().toString();
+            // LOG.info(result);
+        } catch (JSQLParserException e) {
+            e.printStackTrace();
+        }
+        return result;
+    }
+
+    public String setCondExpression(String statement, String cond) {
+        String result = null;
+        try {
+            Insert insert = (Insert) CCJSqlParserUtil.parse(statement);
+            Select select = insert.getSelect();
+            Expression where = CCJSqlParserUtil.parseCondExpression(cond);
+            Expression originalWhereExpr = ((PlainSelect) select.getSelectBody()).getWhere();
+            if (originalWhereExpr != null) {
+                AndExpression andRowNum = new AndExpression(originalWhereExpr, where);
+                ((PlainSelect) select.getSelectBody()).setWhere(andRowNum);
+            } else {
+                ((PlainSelect) select.getSelectBody()).setWhere(where);
+            }
+
+            result = insert.toString();
+            // LOG.info(result);
+        } catch (JSQLParserException e) {
+            e.printStackTrace();
+        }
+        return result;
+    }
+
+    public void execCommands(String[] commands) {
+        try {
+            Process p = Runtime.getRuntime().exec(commands);
+            // BufferedInputStream is = new BufferedInputStream(p.getInputStream());
+            BufferedInputStream is = new BufferedInputStream(p.getErrorStream());
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+            String line;
+            String result;
+            while ((line = reader.readLine()) != null) {
+               LOG.info(line);
+            }
+            try {
+                p.waitFor();
+                is.close();
+                reader.close();
+                p.destroy();
+            } catch(InterruptedException e) {
+                e.printStackTrace();
+            }
+        } catch(IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     /**
      * Initialize all of the SQLStmt handles. This must be called separately from
      * the constructor, otherwise we can't get access to all of our SQLStmts.

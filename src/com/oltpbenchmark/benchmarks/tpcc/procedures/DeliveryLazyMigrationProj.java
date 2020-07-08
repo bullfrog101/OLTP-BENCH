@@ -18,22 +18,25 @@ package com.oltpbenchmark.benchmarks.tpcc.procedures;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.Random;
+import java.text.MessageFormat;
 
 import org.apache.log4j.Logger;
 
+import com.oltpbenchmark.DBWorkload;
 import com.oltpbenchmark.api.SQLStmt;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCConstants;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCUtil;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCWorker;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCConfig;
 
-public class Delivery extends TPCCProcedure {
+public class DeliveryLazyMigrationProj extends TPCCProcedure {
 
-    private static final Logger LOG = Logger.getLogger(Delivery.class);
+    private static final Logger LOG = Logger.getLogger(DeliveryLazyMigrationProj.class);
 
 	public SQLStmt delivGetOrderIdSQL = new SQLStmt(
 	        "SELECT NO_O_ID FROM " + TPCCConstants.TABLENAME_NEWORDER + 
@@ -73,16 +76,39 @@ public class Delivery extends TPCCProcedure {
 			"  FROM " + TPCCConstants.TABLENAME_ORDERLINE + 
 			" WHERE OL_O_ID = ? " +
 			"   AND OL_D_ID = ? " +
-			"   AND OL_W_ID = ?");
-	
-	public SQLStmt delivUpdateCustBalDelivCntSQL = new SQLStmt(
-	        "UPDATE " + TPCCConstants.TABLENAME_CUSTOMER +
-	        "   SET C_BALANCE = C_BALANCE + ?," +
-			"       C_DELIVERY_CNT = C_DELIVERY_CNT + 1 " +
-			" WHERE C_W_ID = ? " +
-			"   AND C_D_ID = ? " +
-			"   AND C_ID = ? ");
+            "   AND OL_W_ID = ?");
+            
+    public SQLStmt delivUpdateCustBalDelivCntSQL = new SQLStmt(
+            "UPDATE " + TPCCConstants.TABLENAME_CUSTOMER_PROJ1 +
+            "   SET C_BALANCE = C_BALANCE + ?," +
+            "       C_DELIVERY_CNT = C_DELIVERY_CNT + 1 " +
+            " WHERE C_W_ID = ? " +
+            "   AND C_D_ID = ? " +
+            "   AND C_ID = ? ");
 
+    public String migrationSQL1 = 
+            " insert into customer_proj1(" +
+            "  c_w_id, c_d_id, c_id, c_discount, c_credit, c_last, c_first, c_balance, " +
+            "  c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_data) " +
+            "(select " +
+            "  c_w_id, c_d_id, c_id, c_discount, c_credit, c_last, c_first, c_balance, " +
+            "  c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_data " +
+            "from customer " +
+            "where c_w_id = {0,number,#} " +
+            "  and c_d_id = {1,number,#} " +
+            "  and c_id = {2,number,#});";
+
+    public String migrationSQL2 = 
+            " insert into customer_proj2(" +
+            "  c_w_id, c_d_id, c_id, c_last, c_first, " +
+            "  c_street_1, c_city, c_state, c_zip) " +
+            "(select " +
+            "  c_w_id, c_d_id, c_id, c_last, c_first, " +
+            "  c_street_1, c_city, c_state, c_zip " +
+            "from customer " +
+            "where c_w_id = {0,number,#} " +
+            "  and c_d_id = {1,number,#} " +
+            "  and c_id = {2,number,#});";
 
 	// Delivery Txn
 	private PreparedStatement delivGetOrderId = null;
@@ -90,14 +116,41 @@ public class Delivery extends TPCCProcedure {
 	private PreparedStatement delivGetCustId = null;
 	private PreparedStatement delivUpdateCarrierId = null;
 	private PreparedStatement delivUpdateDeliveryDate = null;
-	private PreparedStatement delivSumOrderAmount = null;
-	private PreparedStatement delivUpdateCustBalDelivCnt = null;
-
+    private PreparedStatement delivSumOrderAmount = null;
+    private PreparedStatement delivUpdateCustBalDelivCnt = null;
+    private Statement stmt = null;
 
     public ResultSet run(Connection conn, Random gen,
 			int w_id, int numWarehouses,
 			int terminalDistrictLowerID, int terminalDistrictUpperID,
 			TPCCWorker w) throws SQLException {
+
+        if (DBWorkload.IS_CONFLICT) {         
+            migrationSQL1 = 
+                " insert into customer_proj1(" +
+                "  c_w_id, c_d_id, c_id, c_discount, c_credit, c_last, c_first, c_balance, " +
+                "  c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_data) " +
+                "(select " +
+                "  c_w_id, c_d_id, c_id, c_discount, c_credit, c_last, c_first, c_balance, " +
+                "  c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_data " +
+                "from customer " +
+                "where c_w_id = {0,number,#} " +
+                "  and c_d_id = {1,number,#} " +
+                "  and c_id = {2,number,#}) " +
+                "on conflict (c_w_id,c_d_id,c_id) do nothing;";
+            migrationSQL2 = 
+                " insert into customer_proj2(" +
+                "  c_w_id, c_d_id, c_id, c_last, c_first, " +
+                "  c_street_1, c_city, c_state, c_zip) " +
+                "(select " +
+                "  c_w_id, c_d_id, c_id, c_last, c_first, " +
+                "  c_street_1, c_city, c_state, c_zip " +
+                "from customer " +
+                "where c_w_id = {0,number,#} " +
+                "  and c_d_id = {1,number,#} " +
+                "  and c_id = {2,number,#}) " +
+                "on conflict (c_w_id,c_d_id,c_id) do nothing;";
+        }
 		
         boolean trace = LOG.isDebugEnabled();
         int o_carrier_id = TPCCUtil.randomNumber(1, 10, gen);
@@ -108,8 +161,9 @@ public class Delivery extends TPCCProcedure {
 		delivGetCustId = this.getPreparedStatement(conn, delivGetCustIdSQL);
 		delivUpdateCarrierId = this.getPreparedStatement(conn, delivUpdateCarrierIdSQL);
 		delivUpdateDeliveryDate = this.getPreparedStatement(conn, delivUpdateDeliveryDateSQL);
-		delivSumOrderAmount = this.getPreparedStatement(conn, delivSumOrderAmountSQL);
-		delivUpdateCustBalDelivCnt = this.getPreparedStatement(conn, delivUpdateCustBalDelivCntSQL);
+        delivSumOrderAmount = this.getPreparedStatement(conn, delivSumOrderAmountSQL);
+        delivUpdateCustBalDelivCnt = this.getPreparedStatement(conn, delivUpdateCustBalDelivCntSQL);
+        stmt = conn.createStatement();
 
 		int d_id, c_id;
         float ol_total = 0;
@@ -191,12 +245,12 @@ public class Delivery extends TPCCProcedure {
             result = delivUpdateDeliveryDate.executeUpdate();
             if (trace) LOG.trace("delivUpdateDeliveryDate END");
 
-            // if (result == 0){
-            //     String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
-            //                                w_id, d_id, no_o_id);
-            //     if (trace) LOG.warn(msg);
-            //     throw new RuntimeException(msg);
-            // }
+            if (result == 0){
+                String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
+                                           w_id, d_id, no_o_id);
+                if (trace) LOG.warn(msg);
+                throw new RuntimeException(msg);
+            }
 
 
             delivSumOrderAmount.setInt(1, no_o_id);
@@ -215,6 +269,16 @@ public class Delivery extends TPCCProcedure {
             ol_total = rs.getFloat("OL_TOTAL");
             rs.close();
 
+            // migration txn
+
+            if (!DBWorkload.IS_CONFLICT)
+                conn.setAutoCommit(false);
+            stmt.addBatch(MessageFormat.format(migrationSQL1, w_id, d_id, c_id));
+            stmt.addBatch(MessageFormat.format(migrationSQL2, w_id, d_id, c_id));
+            stmt.executeBatch();
+            if (!DBWorkload.IS_CONFLICT)
+                conn.commit();
+
             int idx = 1; // HACK: So that we can debug this query
             delivUpdateCustBalDelivCnt.setDouble(idx++, ol_total);
             delivUpdateCustBalDelivCnt.setInt(idx++, w_id);
@@ -228,7 +292,7 @@ public class Delivery extends TPCCProcedure {
                 String msg = String.format("Failed to update CUSTOMER record [W_ID=%d, D_ID=%d, C_ID=%d]",
                                            w_id, d_id, c_id);
                 if (trace) LOG.warn(msg);
-                throw new RuntimeException(msg);
+                // throw new RuntimeException(msg);
             }
         }
 
@@ -258,7 +322,8 @@ public class Delivery extends TPCCProcedure {
             terminalMessage.append("+-----------------------------------------------------------------+\n\n");
             LOG.trace(terminalMessage.toString());
         }
-	
+    
+        if (stmt != null) { stmt.close(); }
 		return null;
     }
 

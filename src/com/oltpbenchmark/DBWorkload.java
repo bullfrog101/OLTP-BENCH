@@ -60,6 +60,12 @@ public class DBWorkload {
     
     private static final String RATE_DISABLED = "disabled";
     private static final String RATE_UNLIMITED = "unlimited";
+    public static String DB_PORT_NUMBER = "5432";
+    public static String DB_BINARY_PATH = "/home/gangliao/so-postgres/postgresql-11.0/dev/bin";
+    public static int MIGRATION_TXN_ID = -1;
+    public static boolean IS_MIGRATED = false;
+    public static boolean IS_CONFLICT = false;
+    public static String BACKGROUND_THREAD = null;
     
     /**
      * @param args
@@ -134,6 +140,26 @@ public class DBWorkload {
                 "uploadHash",
                 true,
                 "git hash to be associated with the upload");
+        options.addOption(
+                null,
+                "path",
+                true,
+                "The binary path of postgres");
+        options.addOption(
+                null,
+                "port",
+                true,
+                "The port number of postgres");
+        options.addOption(
+                null,
+                "migration",
+                true,
+                "migration transaction id");
+        options.addOption(
+                null,
+                "bgthread",
+                true,
+                "A backgroud thread for lazy migration");
 
         options.addOption("v", "verbose", false, "Display Messages");
         options.addOption("h", "help", false, "Print this help");
@@ -148,6 +174,7 @@ public class DBWorkload {
         options.addOption(null, "dialects-export", true, "Export benchmark SQL to a dialects file");
         options.addOption(null, "output-raw", true, "Output raw data");
         options.addOption(null, "output-samples", true, "Output sample data");
+        options.addOption(null, "on-conflict", false, "Enable On Conflict Clause for Migration");
 
 
         // parse the command line arguments
@@ -163,10 +190,18 @@ public class DBWorkload {
             LOG.fatal("Missing Benchmark Class to load");
             printUsage(options);
             return;
+        } else if (argsLine.hasOption("port") == false) {
+            LOG.fatal("Missing the backend database's port number");
+            printUsage(options);
+            return;
+        } else if (argsLine.hasOption("path") == false) {
+            LOG.fatal("Missing the backend database's binary path");
+            printUsage(options);
+            return;
         }
-        
-        
-        
+
+
+
         // Seconds
         int intervalMonitor = 0;
         if (argsLine.hasOption("im")) {
@@ -176,7 +211,22 @@ public class DBWorkload {
         // -------------------------------------------------------------------
         // GET PLUGIN LIST
         // -------------------------------------------------------------------
+        DB_PORT_NUMBER = argsLine.getOptionValue("port");
+        DB_BINARY_PATH = argsLine.getOptionValue("path");
+        if (argsLine.hasOption("bgthread")) {
+            BACKGROUND_THREAD = argsLine.getOptionValue("bgthread");
+            LOG.info("background thread: " + BACKGROUND_THREAD);
+        }
         
+        if (argsLine.hasOption("migration")) {
+            MIGRATION_TXN_ID = Integer.parseInt(argsLine.getOptionValue("migration"));
+            LOG.info("migration txn id: " + MIGRATION_TXN_ID);
+        }
+        if (argsLine.hasOption("on-conflict")) {
+            IS_CONFLICT = true;
+        }
+        LOG.info("Enable on-conflict clause: " + IS_CONFLICT);
+
         String targetBenchmarks = argsLine.getOptionValue("b");
         
         String[] targetList = targetBenchmarks.split(",");
@@ -405,9 +455,10 @@ public class DBWorkload {
                     }
                 }
                 Phase.Arrival arrival=Phase.Arrival.REGULAR;
-                String arrive=work.getString("@arrival","regular");
-                if(arrive.toUpperCase().equals("POISSON"))
+                String arrive=work.getString("arrival","regular");
+                if(arrive.toUpperCase().equals("POISSON")) {
                     arrival=Phase.Arrival.POISSON;
+                }
                 
                 // If serial is enabled then run all queries exactly once in serial (rather than
                 // random) order

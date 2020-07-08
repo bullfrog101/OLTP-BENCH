@@ -18,22 +18,25 @@ package com.oltpbenchmark.benchmarks.tpcc.procedures;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.Random;
+import java.text.MessageFormat;
 
 import org.apache.log4j.Logger;
 
+import com.oltpbenchmark.DBWorkload;
 import com.oltpbenchmark.api.SQLStmt;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCConstants;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCUtil;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCWorker;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCConfig;
 
-public class Delivery extends TPCCProcedure {
+public class DeliveryLazyMigrationAgg extends TPCCProcedure {
 
-    private static final Logger LOG = Logger.getLogger(Delivery.class);
+    private static final Logger LOG = Logger.getLogger(DeliveryLazyMigrationAgg.class);
 
 	public SQLStmt delivGetOrderIdSQL = new SQLStmt(
 	        "SELECT NO_O_ID FROM " + TPCCConstants.TABLENAME_NEWORDER + 
@@ -60,17 +63,39 @@ public class Delivery extends TPCCProcedure {
 			" WHERE O_ID = ? " +
 	        "   AND O_D_ID = ?" +
 			"   AND O_W_ID = ?");
-	
+
+    public final SQLStmt migrationSQL1 = new SQLStmt(
+            "migrate 1 order_line " +
+            "explain select count(*) from orderline_agg_v " +
+            " where ol_o_id = ? " +
+            "   and ol_d_id = ? " +
+            "   and ol_w_id = ?; ");
+
+    public String migrationSQL2 =
+            "migrate insert into orderline_agg(" +
+            " ol_amount_sum, ol_quantity_avg, ol_o_id, ol_d_id, ol_w_id) " +
+            " (select " +
+            "  sum(ol_amount), avg(ol_quantity), ol_o_id, ol_d_id, ol_w_id " +
+            "  from order_line " +
+            "  group by ol_o_id, ol_d_id, ol_w_id) ";
+
+    public String migrationSQL3 = 
+            " insert into orderline_agg(" +
+            " ol_amount_sum, ol_quantity_avg, ol_o_id, ol_d_id, ol_w_id) " +    
+            " (select sum(ol_amount), avg(ol_quantity), ol_o_id, ol_d_id, ol_w_id " +
+            " from order_line where ol_o_id = {0,number,#} and ol_d_id = {1,number,#} and ol_w_id = {2,number,#}" + 
+            " group by ol_o_id, ol_d_id, ol_w_id);";
+
 	public SQLStmt delivUpdateDeliveryDateSQL = new SQLStmt(
 	        "UPDATE " + TPCCConstants.TABLENAME_ORDERLINE +
 	        "   SET OL_DELIVERY_D = ? " +
 			" WHERE OL_O_ID = ? " +
 			"   AND OL_D_ID = ? " +
 			"   AND OL_W_ID = ? ");
-	
+
 	public SQLStmt delivSumOrderAmountSQL = new SQLStmt(
-	        "SELECT SUM(OL_AMOUNT) AS OL_TOTAL " +
-			"  FROM " + TPCCConstants.TABLENAME_ORDERLINE + 
+	        "SELECT ol_amount_sum AS OL_TOTAL " +
+			"  FROM " + TPCCConstants.TABLENAME_ORDERLINE_AGG + 
 			" WHERE OL_O_ID = ? " +
 			"   AND OL_D_ID = ? " +
 			"   AND OL_W_ID = ?");
@@ -91,14 +116,37 @@ public class Delivery extends TPCCProcedure {
 	private PreparedStatement delivUpdateCarrierId = null;
 	private PreparedStatement delivUpdateDeliveryDate = null;
 	private PreparedStatement delivSumOrderAmount = null;
-	private PreparedStatement delivUpdateCustBalDelivCnt = null;
+    private PreparedStatement delivUpdateCustBalDelivCnt = null;
+    private PreparedStatement migration1 = null;
+    private Statement stmt = null;
 
 
     public ResultSet run(Connection conn, Random gen,
 			int w_id, int numWarehouses,
 			int terminalDistrictLowerID, int terminalDistrictUpperID,
 			TPCCWorker w) throws SQLException {
-		
+        
+        if (DBWorkload.IS_CONFLICT) {
+            migrationSQL2 =
+            "migrate insert into orderline_agg(" +
+            " ol_amount_sum, ol_quantity_avg, ol_o_id, ol_d_id, ol_w_id) " +
+            " (select " +
+            "  sum(ol_amount), avg(ol_quantity), ol_o_id, ol_d_id, ol_w_id " +
+            "  from order_line " +
+            "  group by ol_o_id, ol_d_id, ol_w_id) " +
+            " ON CONFLICT (ol_o_id,ol_d_id,ol_w_id) " +
+            " DO NOTHING;";            
+
+            migrationSQL3 = 
+            " insert into orderline_agg(" +
+            " ol_amount_sum, ol_quantity_avg, ol_o_id, ol_d_id, ol_w_id) " +    
+            " (select sum(ol_amount), avg(ol_quantity), ol_o_id, ol_d_id, ol_w_id " +
+            " from order_line where ol_o_id = {0,number,#} and ol_d_id = {1,number,#} and ol_w_id = {2,number,#}" + 
+            " group by ol_o_id, ol_d_id, ol_w_id) " +
+            " ON CONFLICT (ol_o_id,ol_d_id,ol_w_id) " +
+            " DO NOTHING;";
+        }
+
         boolean trace = LOG.isDebugEnabled();
         int o_carrier_id = TPCCUtil.randomNumber(1, 10, gen);
         Timestamp timestamp = w.getBenchmarkModule().getTimestamp(System.currentTimeMillis());
@@ -109,7 +157,9 @@ public class Delivery extends TPCCProcedure {
 		delivUpdateCarrierId = this.getPreparedStatement(conn, delivUpdateCarrierIdSQL);
 		delivUpdateDeliveryDate = this.getPreparedStatement(conn, delivUpdateDeliveryDateSQL);
 		delivSumOrderAmount = this.getPreparedStatement(conn, delivSumOrderAmountSQL);
-		delivUpdateCustBalDelivCnt = this.getPreparedStatement(conn, delivUpdateCustBalDelivCntSQL);
+        delivUpdateCustBalDelivCnt = this.getPreparedStatement(conn, delivUpdateCustBalDelivCntSQL);
+        migration1 = this.getPreparedStatement(conn, migrationSQL1);
+        stmt = conn.createStatement();
 
 		int d_id, c_id;
         float ol_total = 0;
@@ -183,6 +233,15 @@ public class Delivery extends TPCCProcedure {
                 throw new RuntimeException(msg);
             }
 
+            if (!DBWorkload.IS_CONFLICT)
+                conn.setAutoCommit(false);
+            String migration = MessageFormat.format(migrationSQL3,
+                no_o_id, d_id, w_id);
+            stmt.executeUpdate(migration);
+            if (!DBWorkload.IS_CONFLICT)
+                conn.commit();
+
+
             delivUpdateDeliveryDate.setTimestamp(1, timestamp);
             delivUpdateDeliveryDate.setInt(2, no_o_id);
             delivUpdateDeliveryDate.setInt(3, d_id);
@@ -191,13 +250,12 @@ public class Delivery extends TPCCProcedure {
             result = delivUpdateDeliveryDate.executeUpdate();
             if (trace) LOG.trace("delivUpdateDeliveryDate END");
 
-            // if (result == 0){
-            //     String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
-            //                                w_id, d_id, no_o_id);
-            //     if (trace) LOG.warn(msg);
-            //     throw new RuntimeException(msg);
-            // }
-
+            //if (result == 0){
+            //    String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
+            //                               w_id, d_id, no_o_id);
+            //    if (trace) LOG.warn(msg);
+            //    throw new RuntimeException(msg);
+            //}
 
             delivSumOrderAmount.setInt(1, no_o_id);
             delivSumOrderAmount.setInt(2, d_id);
@@ -207,12 +265,14 @@ public class Delivery extends TPCCProcedure {
             if (trace) LOG.trace("delivSumOrderAmount END");
 
             if (!rs.next()) {
-                String msg = String.format("Failed to retrieve ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
-                                           w_id, d_id, no_o_id);
-                if (trace) LOG.warn(msg);
-                throw new RuntimeException(msg);
+                // String msg = String.format("Failed to retrieve ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
+                //                            w_id, d_id, no_o_id);
+                // if (trace) LOG.warn(msg);
+                // throw new RuntimeException(msg);
+                ol_total = 0;
+            } else {
+                ol_total = rs.getFloat("OL_TOTAL");
             }
-            ol_total = rs.getFloat("OL_TOTAL");
             rs.close();
 
             int idx = 1; // HACK: So that we can debug this query
@@ -224,15 +284,16 @@ public class Delivery extends TPCCProcedure {
             result = delivUpdateCustBalDelivCnt.executeUpdate();
             if (trace) LOG.trace("delivUpdateCustBalDelivCnt END");
 
-            if (result == 0) {
-                String msg = String.format("Failed to update CUSTOMER record [W_ID=%d, D_ID=%d, C_ID=%d]",
-                                           w_id, d_id, c_id);
-                if (trace) LOG.warn(msg);
-                throw new RuntimeException(msg);
-            }
+            // if (result == 0) {
+            //     String msg = String.format("Failed to update CUSTOMER record [W_ID=%d, D_ID=%d, C_ID=%d]",
+            //                                w_id, d_id, c_id);
+            //     if (trace) LOG.warn(msg);
+            //     throw new RuntimeException(msg);
+            // }
         }
 
         conn.commit();
+        if (stmt != null) { stmt.close(); }
          
         if (trace) {
             StringBuilder terminalMessage = new StringBuilder();

@@ -21,6 +21,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.LinkedList;
 
+import com.oltpbenchmark.DBWorkload;
 import com.oltpbenchmark.types.State;
 import com.oltpbenchmark.util.QueueLimitException;
 import org.apache.log4j.Logger;
@@ -84,8 +85,19 @@ public class WorkloadState {
                    }
             else {
                 // Add the specified number of procedures to the end of the queue.
-                for (int i = 0; i < amount; ++i)
-                    workQueue.add(new SubmittedProcedure(currentPhase.chooseTransaction()));
+                int type = 0;
+                if (benchmarkState.getState() != State.WARMUP) {
+                for (int i = 0; i < amount; ++i) {
+                    type = currentPhase.chooseTransaction();
+                    if (type != DBWorkload.MIGRATION_TXN_ID) {
+                        workQueue.add(new SubmittedProcedure(type));
+                    } else if (type == DBWorkload.MIGRATION_TXN_ID && !DBWorkload.IS_MIGRATED) {
+                        // FIXME: migration (baseline) only once
+                        workQueue.add(new SubmittedProcedure(type));
+                        DBWorkload.IS_MIGRATED = true;                       
+                    }
+                }
+                }
                }
 
             // Can't keep up with current rate? Remove the oldest transactions

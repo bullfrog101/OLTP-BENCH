@@ -31,52 +31,52 @@ import com.oltpbenchmark.benchmarks.tpcc.TPCCUtil;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCWorker;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCConfig;
 
-public class Delivery extends TPCCProcedure {
+public class DeliveryBaseMigrationProj extends TPCCProcedure {
 
-    private static final Logger LOG = Logger.getLogger(Delivery.class);
+    private static final Logger LOG = Logger.getLogger(DeliveryBaseMigrationProj.class);
 
 	public SQLStmt delivGetOrderIdSQL = new SQLStmt(
-	        "SELECT NO_O_ID FROM " + TPCCConstants.TABLENAME_NEWORDER + 
+	        "SELECT NO_O_ID FROM " + TPCCConstants.TABLENAME_NEWORDER +
 	        " WHERE NO_D_ID = ? " +
 	        "   AND NO_W_ID = ? " +
 	        " ORDER BY NO_O_ID ASC " +
 	        " LIMIT 1");
-	
+
 	public SQLStmt delivDeleteNewOrderSQL = new SQLStmt(
 	        "DELETE FROM " + TPCCConstants.TABLENAME_NEWORDER +
 			" WHERE NO_O_ID = ? " +
             "   AND NO_D_ID = ?" +
 			"   AND NO_W_ID = ?");
-	
+
 	public SQLStmt delivGetCustIdSQL = new SQLStmt(
-	        "SELECT O_C_ID FROM " + TPCCConstants.TABLENAME_OPENORDER + 
+	        "SELECT O_C_ID FROM " + TPCCConstants.TABLENAME_OPENORDER +
 	        " WHERE O_ID = ? " +
             "   AND O_D_ID = ? " +
 	        "   AND O_W_ID = ?");
-	
+
 	public SQLStmt delivUpdateCarrierIdSQL = new SQLStmt(
-	        "UPDATE " + TPCCConstants.TABLENAME_OPENORDER + 
+	        "UPDATE " + TPCCConstants.TABLENAME_OPENORDER +
 	        "   SET O_CARRIER_ID = ? " +
 			" WHERE O_ID = ? " +
 	        "   AND O_D_ID = ?" +
 			"   AND O_W_ID = ?");
-	
+
 	public SQLStmt delivUpdateDeliveryDateSQL = new SQLStmt(
 	        "UPDATE " + TPCCConstants.TABLENAME_ORDERLINE +
 	        "   SET OL_DELIVERY_D = ? " +
 			" WHERE OL_O_ID = ? " +
 			"   AND OL_D_ID = ? " +
 			"   AND OL_W_ID = ? ");
-	
+
 	public SQLStmt delivSumOrderAmountSQL = new SQLStmt(
 	        "SELECT SUM(OL_AMOUNT) AS OL_TOTAL " +
-			"  FROM " + TPCCConstants.TABLENAME_ORDERLINE + 
+			"  FROM " + TPCCConstants.TABLENAME_ORDERLINE +
 			" WHERE OL_O_ID = ? " +
 			"   AND OL_D_ID = ? " +
 			"   AND OL_W_ID = ?");
-	
+
 	public SQLStmt delivUpdateCustBalDelivCntSQL = new SQLStmt(
-	        "UPDATE " + TPCCConstants.TABLENAME_CUSTOMER +
+	        "UPDATE " + TPCCConstants.TABLENAME_CUSTOMER_PROJ1 +
 	        "   SET C_BALANCE = C_BALANCE + ?," +
 			"       C_DELIVERY_CNT = C_DELIVERY_CNT + 1 " +
 			" WHERE C_W_ID = ? " +
@@ -98,7 +98,7 @@ public class Delivery extends TPCCProcedure {
 			int w_id, int numWarehouses,
 			int terminalDistrictLowerID, int terminalDistrictUpperID,
 			TPCCWorker w) throws SQLException {
-		
+
         boolean trace = LOG.isDebugEnabled();
         int o_carrier_id = TPCCUtil.randomNumber(1, 10, gen);
         Timestamp timestamp = w.getBenchmarkModule().getTimestamp(System.currentTimeMillis());
@@ -144,7 +144,7 @@ public class Delivery extends TPCCProcedure {
                 // This code used to run in a loop in an attempt to make this work
                 // with MySQL's default weird consistency level. We just always run
                 // this as SERIALIZABLE instead. I don't *think* that fixing this one
-                // error makes this work with MySQL's default consistency. 
+                // error makes this work with MySQL's default consistency.
                 // Careful auditing would be required.
                 String msg = String.format("NewOrder delete failed. Not running with SERIALIZABLE isolation? " +
                                            "[w_id=%d, d_id=%d, no_o_id=%d]", w_id, d_id, no_o_id);
@@ -191,12 +191,12 @@ public class Delivery extends TPCCProcedure {
             result = delivUpdateDeliveryDate.executeUpdate();
             if (trace) LOG.trace("delivUpdateDeliveryDate END");
 
-            // if (result == 0){
-            //     String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
-            //                                w_id, d_id, no_o_id);
-            //     if (trace) LOG.warn(msg);
-            //     throw new RuntimeException(msg);
-            // }
+            if (result == 0){
+                String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
+                                           w_id, d_id, no_o_id);
+                if (trace) LOG.warn(msg);
+                throw new RuntimeException(msg);
+            }
 
 
             delivSumOrderAmount.setInt(1, no_o_id);
@@ -233,7 +233,7 @@ public class Delivery extends TPCCProcedure {
         }
 
         conn.commit();
-         
+
         if (trace) {
             StringBuilder terminalMessage = new StringBuilder();
             terminalMessage
@@ -258,7 +258,7 @@ public class Delivery extends TPCCProcedure {
             terminalMessage.append("+-----------------------------------------------------------------+\n\n");
             LOG.trace(terminalMessage.toString());
         }
-	
+
 		return null;
     }
 

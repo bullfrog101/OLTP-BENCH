@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+<parameters>
+    <dbtype>postgres</dbtype>
+    <driver>org.postgresql.Driver</driver>
+    <DBUrl>jdbc:postgresql://localhost:5436/tpcc</DBUrl>
+    <DBName>tpcc</DBName>
+    <username>postgres</username>
+    <password>postgres</password>
+    <isolation>TRANSACTION_SERIALIZABLE</isolation>
+    <terminals>8</terminals>
+
+    <scalefactor>10</scalefactor>
+    <uploadCode></uploadCode>
+    <uploadUrl></uploadUrl>
+        <transactiontypes bench="tpcc">
+        <transactiontype>
+                <name>NewOrderBaseMigrationJoin</name>
+                <id>1</id>
+        </transactiontype>
+        <transactiontype>
+                <name>Payment</name>
+                <id>2</id>
+        </transactiontype>
+        <transactiontype>
+                <name>OrderStatusBaseMigrationJoin</name>
+                <id>3</id>
+        </transactiontype>
+        <transactiontype>
+                <name>DeliveryBaseMigrationJoin</name>
+                <id>4</id>
+        </transactiontype>
+        <transactiontype>
+                <name>StockLevelBaseMigrationJoinPhaseTwo</name>
+                <id>5</id>
+        </transactiontype>
+        <transactiontype>
+                <name>StockLevelBaseMigrationSplit</name>
+                <id>6</id>
+        </transactiontype>
+        <transactiontype>
+                <name>NewOrderLazyMigrationSplit</name>
+                <id>7</id>
+        </transactiontype>
+        <transactiontype>
+                <name>OrderStatusLazyMigrationSplit</name>
+                <id>8</id>
+        </transactiontype>
+        <transactiontype>
+                <name>DeliveryLazyMigrationSplit</name>
+                <id>9</id>
+        </transactiontype>
+        <transactiontype>
+                <name>StockLevelLazyMigrationSplit</name>
+                <id>10</id>
+        </transactiontype>
+        </transactiontypes>
+
+
+        <works>
+        <work>
+          <time>700</time>
+          <rate>1000</rate>
+	  <weights bench="tpcc">0, 43, 0, 0, 0, 0, 57, 0, 0, 0</weights>
+        </work>
+        </works>
+</parameters>

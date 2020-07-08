@@ -360,6 +360,13 @@ public class ThreadBench implements Thread.UncaughtExceptionHandler {
             new MonitorThread(this.intervalMonitor).start();
         }
 
+        // Add a background thread to find non-migrated tuples and migrate them
+        BgThread1 bgWorker1 = new BgThread1("A background thread for lazy migration"); 
+        bgWorker1.start();
+
+        BgThread2 bgWorker2 = new BgThread2("A background thread for lazy migration"); 
+        bgWorker2.start();
+
         // Main Loop
         while (true) {           
             // posting new work... and reseting the queue in case we have new
@@ -557,6 +564,10 @@ public class ThreadBench implements Thread.UncaughtExceptionHandler {
                 } // FOR
             } // FOR
 
+            bgWorker1.stopRunning();
+            bgWorker2.stopRunning();
+            bgWorker1.join();
+            bgWorker2.join();
             return (results);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);

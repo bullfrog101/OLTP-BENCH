@@ -20,6 +20,9 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.Iterator;
 import java.util.ListIterator;
+
+import com.oltpbenchmark.DBWorkload;
+
 import java.util.List;
 import java.util.LinkedList;
 
@@ -159,6 +162,7 @@ public class TraceReader {
 
         // Loop through the procedures until we find one that's out of the
         // phase or within the current phase but beyond the time marker.
+        boolean flag = false;
         while (iter.hasNext()) {
             curr = iter.next();
             if (curr.phaseId != currentPhaseId
@@ -166,7 +170,13 @@ public class TraceReader {
             {
                 break;
             }
-            readyProcedures.add(new SubmittedProcedure(curr.txnId, nowNs));
+            if (curr.txnId != DBWorkload.MIGRATION_TXN_ID) {
+                readyProcedures.add(new SubmittedProcedure(curr.txnId, nowNs));
+            } else if (curr.txnId == DBWorkload.MIGRATION_TXN_ID && !DBWorkload.IS_MIGRATED) {
+                // FIXME: migration (baseline) only once
+                readyProcedures.add(new SubmittedProcedure(curr.txnId, nowNs));
+                DBWorkload.IS_MIGRATED = true;                   
+            }
             iter.remove();
         }
 

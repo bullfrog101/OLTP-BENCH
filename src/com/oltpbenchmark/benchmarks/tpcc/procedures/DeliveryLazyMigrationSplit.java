@@ -18,6 +18,7 @@ package com.oltpbenchmark.benchmarks.tpcc.procedures;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -25,15 +26,17 @@ import java.util.Random;
 
 import org.apache.log4j.Logger;
 
+import com.oltpbenchmark.DBWorkload;
+
 import com.oltpbenchmark.api.SQLStmt;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCConstants;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCUtil;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCWorker;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCConfig;
 
-public class Delivery extends TPCCProcedure {
+public class DeliveryLazyMigrationSplit extends TPCCProcedure {
 
-    private static final Logger LOG = Logger.getLogger(Delivery.class);
+    private static final Logger LOG = Logger.getLogger(DeliveryLazyMigrationSplit.class);
 
 	public SQLStmt delivGetOrderIdSQL = new SQLStmt(
 	        "SELECT NO_O_ID FROM " + TPCCConstants.TABLENAME_NEWORDER + 
@@ -60,7 +63,23 @@ public class Delivery extends TPCCProcedure {
 			" WHERE O_ID = ? " +
 	        "   AND O_D_ID = ?" +
 			"   AND O_W_ID = ?");
-	
+            
+    public final SQLStmt migrateOrderLineSQL1 = new SQLStmt(
+			"migrate 1 orderline_stock " +
+			"explain select count(*) from os_orderline_split_v " +
+			"where ol_o_id = ?" +
+			"  and ol_d_id = ?" +
+			"  and ol_w_id = ?");
+        
+    public String migrateOrderLineSQL2 =
+			"migrate insert into order_line( " +
+			"  ol_w_id, ol_d_id, ol_o_id, ol_number, ol_i_id, ol_delivery_d, " +
+			"  ol_amount, ol_supply_w_id, ol_quantity, ol_dist_info) " +
+			" (select " +
+			"  ol_w_id, ol_d_id, ol_o_id, ol_number, ol_i_id, ol_delivery_d, " +
+			"  ol_amount, ol_supply_w_id, ol_quantity, ol_dist_info " +
+			"  from orderline_stock limit 1) ";
+
 	public SQLStmt delivUpdateDeliveryDateSQL = new SQLStmt(
 	        "UPDATE " + TPCCConstants.TABLENAME_ORDERLINE +
 	        "   SET OL_DELIVERY_D = ? " +
@@ -91,13 +110,28 @@ public class Delivery extends TPCCProcedure {
 	private PreparedStatement delivUpdateCarrierId = null;
 	private PreparedStatement delivUpdateDeliveryDate = null;
 	private PreparedStatement delivSumOrderAmount = null;
-	private PreparedStatement delivUpdateCustBalDelivCnt = null;
+    private PreparedStatement delivUpdateCustBalDelivCnt = null;
+    private PreparedStatement migrateOrderLine1 = null;
+    // private PreparedStatement migrateOrderLine2 = null;
+    private Statement stmt = null;
 
 
     public ResultSet run(Connection conn, Random gen,
 			int w_id, int numWarehouses,
 			int terminalDistrictLowerID, int terminalDistrictUpperID,
 			TPCCWorker w) throws SQLException {
+
+        if (DBWorkload.IS_CONFLICT) {
+            migrateOrderLineSQL2 =
+			"migrate insert into order_line( " +
+			"  ol_w_id, ol_d_id, ol_o_id, ol_number, ol_i_id, ol_delivery_d, " +
+			"  ol_amount, ol_supply_w_id, ol_quantity, ol_dist_info) " +
+			" (select " +
+			"  ol_w_id, ol_d_id, ol_o_id, ol_number, ol_i_id, ol_delivery_d, " +
+			"  ol_amount, ol_supply_w_id, ol_quantity, ol_dist_info " +
+			"  from orderline_stock limit 1) " +
+			"on conflict (ol_w_id,ol_d_id,ol_o_id,ol_number) do nothing";            
+        }
 		
         boolean trace = LOG.isDebugEnabled();
         int o_carrier_id = TPCCUtil.randomNumber(1, 10, gen);
@@ -109,14 +143,17 @@ public class Delivery extends TPCCProcedure {
 		delivUpdateCarrierId = this.getPreparedStatement(conn, delivUpdateCarrierIdSQL);
 		delivUpdateDeliveryDate = this.getPreparedStatement(conn, delivUpdateDeliveryDateSQL);
 		delivSumOrderAmount = this.getPreparedStatement(conn, delivSumOrderAmountSQL);
-		delivUpdateCustBalDelivCnt = this.getPreparedStatement(conn, delivUpdateCustBalDelivCntSQL);
+        delivUpdateCustBalDelivCnt = this.getPreparedStatement(conn, delivUpdateCustBalDelivCntSQL);
+        migrateOrderLine1 = this.getPreparedStatement(conn, migrateOrderLineSQL1); 
+        // migrateOrderLine2 = this.getPreparedStatement(conn, migrateOrderLineSQL2); 
+        stmt = conn.createStatement();
 
 		int d_id, c_id;
         float ol_total = 0;
         int[] orderIDs;
 
         orderIDs = new int[10];
-        for (d_id = 1; d_id <= terminalDistrictUpperID; d_id++) {
+        for (d_id = 1; d_id <= 1; d_id++) {
             delivGetOrderId.setInt(1, d_id);
             delivGetOrderId.setInt(2, w_id);
             if (trace) LOG.trace("delivGetOrderId START");
@@ -183,6 +220,14 @@ public class Delivery extends TPCCProcedure {
                 throw new RuntimeException(msg);
             }
 
+            migrateOrderLine1.setInt(1, no_o_id);
+            migrateOrderLine1.setInt(2, d_id);
+            migrateOrderLine1.setInt(3, w_id);
+            conn.setAutoCommit(false);
+            migrateOrderLine1.executeQuery();
+            stmt.executeUpdate(migrateOrderLineSQL2);
+            conn.commit();
+
             delivUpdateDeliveryDate.setTimestamp(1, timestamp);
             delivUpdateDeliveryDate.setInt(2, no_o_id);
             delivUpdateDeliveryDate.setInt(3, d_id);
@@ -192,10 +237,10 @@ public class Delivery extends TPCCProcedure {
             if (trace) LOG.trace("delivUpdateDeliveryDate END");
 
             // if (result == 0){
-            //     String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
-            //                                w_id, d_id, no_o_id);
-            //     if (trace) LOG.warn(msg);
-            //     throw new RuntimeException(msg);
+            //    String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
+            //                               w_id, d_id, no_o_id);
+            //    if (trace) LOG.warn(msg);
+            //    throw new RuntimeException(msg);
             // }
 
 
@@ -258,7 +303,9 @@ public class Delivery extends TPCCProcedure {
             terminalMessage.append("+-----------------------------------------------------------------+\n\n");
             LOG.trace(terminalMessage.toString());
         }
-	
+
+        if (stmt != null) { stmt.close(); }
+
 		return null;
     }
 

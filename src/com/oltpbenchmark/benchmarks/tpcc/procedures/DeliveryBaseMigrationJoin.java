@@ -31,9 +31,9 @@ import com.oltpbenchmark.benchmarks.tpcc.TPCCUtil;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCWorker;
 import com.oltpbenchmark.benchmarks.tpcc.TPCCConfig;
 
-public class Delivery extends TPCCProcedure {
+public class DeliveryBaseMigrationJoin extends TPCCProcedure {
 
-    private static final Logger LOG = Logger.getLogger(Delivery.class);
+    private static final Logger LOG = Logger.getLogger(DeliveryBaseMigrationJoin.class);
 
 	public SQLStmt delivGetOrderIdSQL = new SQLStmt(
 	        "SELECT NO_O_ID FROM " + TPCCConstants.TABLENAME_NEWORDER + 
@@ -62,7 +62,7 @@ public class Delivery extends TPCCProcedure {
 			"   AND O_W_ID = ?");
 	
 	public SQLStmt delivUpdateDeliveryDateSQL = new SQLStmt(
-	        "UPDATE " + TPCCConstants.TABLENAME_ORDERLINE +
+	        "UPDATE " + TPCCConstants.TABLENAME_ORDERLINE_STOCK +
 	        "   SET OL_DELIVERY_D = ? " +
 			" WHERE OL_O_ID = ? " +
 			"   AND OL_D_ID = ? " +
@@ -70,7 +70,7 @@ public class Delivery extends TPCCProcedure {
 	
 	public SQLStmt delivSumOrderAmountSQL = new SQLStmt(
 	        "SELECT SUM(OL_AMOUNT) AS OL_TOTAL " +
-			"  FROM " + TPCCConstants.TABLENAME_ORDERLINE + 
+			"  FROM " + TPCCConstants.TABLENAME_ORDERLINE_STOCK + 
 			" WHERE OL_O_ID = ? " +
 			"   AND OL_D_ID = ? " +
 			"   AND OL_W_ID = ?");
@@ -191,12 +191,12 @@ public class Delivery extends TPCCProcedure {
             result = delivUpdateDeliveryDate.executeUpdate();
             if (trace) LOG.trace("delivUpdateDeliveryDate END");
 
-            // if (result == 0){
-            //     String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
-            //                                w_id, d_id, no_o_id);
-            //     if (trace) LOG.warn(msg);
-            //     throw new RuntimeException(msg);
-            // }
+            //if (result == 0){
+            //    String msg = String.format("Failed to update ORDER_LINE records [W_ID=%d, D_ID=%d, O_ID=%d]",
+            //                               w_id, d_id, no_o_id);
+            //    if (trace) LOG.warn(msg);
+            //    throw new RuntimeException(msg);
+            //}
 
 
             delivSumOrderAmount.setInt(1, no_o_id);

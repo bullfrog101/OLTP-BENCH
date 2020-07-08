@@ -18,7 +18,7 @@
 package com.oltpbenchmark.benchmarks.tpcc;
 
 /*
- * jTPCCUtil - utility functions for the Open Source Java implementation of 
+ * jTPCCUtil - utility functions for the Open Source Java implementation of
  *    the TPC-C benchmark
  *
  * Copyright (C) 2003, Raul Barbosa
@@ -31,6 +31,8 @@ import static com.oltpbenchmark.benchmarks.tpcc.TPCCConfig.*;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Random;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 import com.oltpbenchmark.benchmarks.tpcc.pojo.Customer;
 import com.oltpbenchmark.util.RandomGenerator;
@@ -65,10 +67,46 @@ public class TPCCUtil {
 		c.c_since = rs.getTimestamp("c_since");
 		return c;
 	}
+
+	public static Customer newCustomerFromResults2(String output) {
+		Customer c = new Customer();
+		String[] res = output.split(",");
+		c.c_first = res[0];
+		c.c_last = res[1];
+		c.c_street_1 = res[2];
+		c.c_city = res[3];
+		c.c_state = res[4];
+		c.c_zip = res[5];
+		c.c_credit = res[6];
+		c.c_balance = Float.valueOf(res[7]);
+		c.c_ytd_payment = Float.valueOf(res[8]);
+		c.c_payment_cnt = Integer.valueOf(res[9]);
+		c.c_data = res[10];
+		c.c_id = Integer.valueOf(res[11]);
+		return c;
+	}
+	public static Customer newCustomerFromResults2(ResultSet rs)
+			throws SQLException {
+		Customer c = new Customer();
+		// TODO: Use column indices: probably faster?
+		c.c_first = rs.getString("c_first");
+		c.c_street_1 = rs.getString("c_street_1");
+		c.c_city = rs.getString("c_city");
+		c.c_state = rs.getString("c_state");
+		c.c_zip = rs.getString("c_zip");
+		c.c_credit = rs.getString("c_credit");
+		c.c_discount = rs.getFloat("c_discount");
+		c.c_balance = rs.getFloat("c_balance");
+		c.c_ytd_payment = rs.getFloat("c_ytd_payment");
+		c.c_payment_cnt = rs.getInt("c_payment_cnt");
+		c.c_data = rs.getString("c_data");
+		c.c_id = rs.getInt("c_id");
+		return c;
+	}
 	private static final RandomGenerator ran = new RandomGenerator(0);
 
 	public static String randomStr(int strLen) {
-	    if (strLen > 1) 
+	    if (strLen > 1)
 	        return ran.astring(strLen - 1, strLen - 1);
 	    else
 	        return "";
